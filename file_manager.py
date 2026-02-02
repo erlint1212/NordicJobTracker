@@ -27,7 +27,7 @@ def save_to_txt(jobs):
     print(f"✅ Text file created at: {config.TXT_FILENAME} ({len(relevant_jobs)} jobs)")
 
 def save_to_excel(new_jobs):
-    """Updates the Excel tracker in the data folder. Rebuilds from DB if missing."""
+    """Updates the Excel tracker. Rebuilds from DB if missing."""
     
     # 1. Determine the Base Data
     if not os.path.exists(config.EXCEL_FILENAME):
@@ -39,6 +39,10 @@ def save_to_excel(new_jobs):
             existing_df = pd.read_excel(config.EXCEL_FILENAME)
             if 'ID' in existing_df.columns:
                 existing_df['ID'] = existing_df['ID'].astype(str)
+            # Ensure columns match new config
+            for col in config.COLUMNS:
+                if col not in existing_df.columns:
+                    existing_df[col] = ""
         except Exception as e:
             print(f"Error reading Excel: {e}. Starting fresh.")
             existing_df = pd.DataFrame(columns=config.COLUMNS)
@@ -54,7 +58,10 @@ def save_to_excel(new_jobs):
     if unique_jobs_list:
         excel_data = []
         for job in unique_jobs_list:
-            excel_data.append({k: job.get(k, "") for k in config.COLUMNS})
+            # Only grab columns defined in config (ignores temp vars)
+            row = {k: job.get(k, "") for k in config.COLUMNS}
+            excel_data.append(row)
+            
         new_df = pd.DataFrame(excel_data)
         final_df = pd.concat([existing_df, new_df], ignore_index=True)
     else:
@@ -62,6 +69,10 @@ def save_to_excel(new_jobs):
 
     # 4. Write and Format using XlsxWriter
     writer = pd.ExcelWriter(config.EXCEL_FILENAME, engine='xlsxwriter')
+    
+    # Ensure only config columns are written
+    final_df = final_df[config.COLUMNS]
+    
     final_df.to_excel(writer, index=False, sheet_name='Tracker')
     
     workbook = writer.book
@@ -72,6 +83,7 @@ def save_to_excel(new_jobs):
     format_blue = workbook.add_format({'bg_color': '#BDD7EE', 'font_color': '#000000'})
     format_yellow = workbook.add_format({'bg_color': '#FFEB9C', 'font_color': '#9C5700'})
     format_green = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100'})
+    format_gray = workbook.add_format({'bg_color': '#E7E6E6', 'font_color': '#000000'})
 
     # Column Widths
     worksheet.set_column('A:A', 30) # Tittel
@@ -81,13 +93,21 @@ def save_to_excel(new_jobs):
     worksheet.set_column('E:E', 20) # Kontaktperson
     worksheet.set_column('F:F', 15) # Mobil
     worksheet.set_column('G:G', 15) # Sted
-    worksheet.set_column('H:H', 50) # Beskrivelse (Short)
+    worksheet.set_column('H:H', 20) # Full Beskrivelse (Keep narrow, it's huge)
     worksheet.set_column('I:I', 40) # Lenke
     worksheet.set_column('J:J', 20) # Status
     worksheet.set_column('K:K', 0)  # Hide ID column
 
     # Dropdown on Status (Column J)
-    status_col = 'J'
+    status_col = 'J' # Changed from previous logic because column index shifted
+    # Check column index just to be safe
+    try:
+        status_idx = config.COLUMNS.index('Status')
+        import string
+        status_col = string.ascii_uppercase[status_idx]
+    except:
+        pass
+
     data_len = len(final_df) + 100
     
     worksheet.data_validation(f'{status_col}2:{status_col}{data_len}', {
@@ -100,9 +120,8 @@ def save_to_excel(new_jobs):
     worksheet.conditional_format(range_str, {'type': 'cell', 'criteria': 'equal_to', 'value': '"Not searched"', 'format': format_red})
     worksheet.conditional_format(range_str, {'type': 'cell', 'criteria': 'equal_to', 'value': '"Sent Application"', 'format': format_blue})
     worksheet.conditional_format(range_str, {'type': 'cell', 'criteria': 'equal_to', 'value': '"1. Interview"', 'format': format_yellow})
-    worksheet.conditional_format(range_str, {'type': 'cell', 'criteria': 'equal_to', 'value': '"2. Interview"', 'format': format_yellow})
     worksheet.conditional_format(range_str, {'type': 'cell', 'criteria': 'equal_to', 'value': '"Offer"', 'format': format_green})
-    worksheet.conditional_format(range_str, {'type': 'cell', 'criteria': 'equal_to', 'value': '"Accepted"', 'format': format_green})
+    worksheet.conditional_format(range_str, {'type': 'cell', 'criteria': 'equal_to', 'value': '"Rejected"', 'format': format_gray})
 
     writer.close()
     

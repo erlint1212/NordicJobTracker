@@ -8,6 +8,7 @@ let
     pandas            # For data manipulation
     xlsxwriter        # For creating Excel dropdowns and colors
     openpyxl          # For reading/writing Excel files
+    pip
   ]);
 in
 

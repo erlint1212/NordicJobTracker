@@ -46,7 +46,6 @@ def scrape_ad_details(url):
         location = "Unknown"
         contact = ""
         phone = ""
-        short_desc = ""
         full_description = ""
 
         # 1. Job Title
@@ -93,11 +92,10 @@ def scrape_ad_details(url):
                 if temp_contact and not contact: contact = temp_contact
                 if temp_phone and not phone: phone = temp_phone
 
-        # 6. Description
+        # 6. Description (Full only)
         desc_div = soup.find('div', class_='import-decoration')
         if desc_div:
             full_description = desc_div.get_text(separator="\n", strip=True)
-            short_desc = full_description[:300] + "..." if len(full_description) > 300 else full_description
 
         job_id = url.split('/')[-1]
 
@@ -109,7 +107,6 @@ def scrape_ad_details(url):
             'Kontaktperson': contact,
             'Mobil': phone,
             'Arbeidssted': location,
-            'Kort beskrivelse': short_desc,
             'Full beskrivelse': full_description,
             'Lenke': url,
             'Status': "Not searched",

@@ -1,0 +1,91 @@
+# NordicJobTracker
+
+A robust automated ETL pipeline that scrapes, deduplicates, and organizes job listings from the Norwegian market into an interactive management dashboard.
+
+
+## Motivation
+Job hunting is often a fragmented process involving repetitive manual searches, loose browser tabs, and disconnected spreadsheets. I found that existing tools didn't offer the granularity I needed—specifically the ability to aggregate niche technical roles (like "DBT Snowflake" or "Systemutvikler") into a single view while automatically filtering out expired listings.
+
+I built **NordicJobTracker** to solve the "data entry" problem of job searching. By automating the extraction and cleaning of job data, I created a system that allows me to focus purely on application quality rather than list management. It serves as both a scraper and a persistent local database that respects the user's application history.
+
+## Quick Start
+
+### Prerequisites
+* Python 3.10+
+* Or a Nix-enabled environment
+
+### Installation
+
+1. **Clone the repository**
+
+```bash
+git clone git@github.com:erlint1212/NordicJobTracker.git
+cd nordic-job-tracker
+```
+
+2. **Install dependencies**
+
+```bash
+pip install -r requirements.txt
+
+```
+
+*(Or run `nix-shell` if you are using Nix)*
+
+3. **Run the pipeline**
+
+```bash
+python main.py
+
+```
+
+
+
+The script will initialize the SQLite database, scrape the configured targets, and generate your dashboard in the `/data` folder.
+
+## Usage
+
+### Configuration
+
+The search parameters are fully customizable in `config.py`. You can define priority titles and specific skill combinations:
+
+```python
+SEARCH_QUERIES = [
+    "Data Engineer",
+    "Systemutvikler",
+    "Python SQL"
+]
+
+```
+
+### The Dashboard (`job_application_tracker.xlsx`)
+
+The tool generates a rich Excel file in `data/`. It is not just a static export; it is a synced dashboard:
+
+* **Status Tracking:** Use the dropdown menu in the "Status" column (e.g., "Sent Application", "1. Interview").
+* **Persistent State:** The script reads this file before running. If you update a job's status to "Applied," the script remembers it and updates the local SQLite database, ensuring you never lose your progress even if you delete the file.
+
+### AI Integration
+
+A text file (`output/jobs_for_gemini.txt`) is automatically generated containing full descriptions of only the *new, unsearched* jobs. This file is formatted specifically to be copy-pasted into LLMs (like ChatGPT or Gemini) for quick summarization or cover letter generation.
+
+## Contributing
+
+This project is designed to be modular. If you wish to extend the scraper or add new analytics:
+
+1. **Fork the repository**
+2. **Set up your environment:**
+```bash
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate
+
+# Install dev dependencies
+pip install -r requirements.txt
+
+```
+
+
+3. **Run Tests:** Ensure the database migration logic holds by running the script against a fresh DB instance.
+4. **Submit a Pull Request** detailing your changes.
+

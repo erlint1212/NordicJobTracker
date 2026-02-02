@@ -6,18 +6,23 @@ import file_manager
 def main():
     print("🚀 Starting Advanced Job Crawler...")
     
-    # 1. Setup Data/Output folders and DB
+    # 1. Setup Data/Output folders and DB (Includes Schema Fixes)
     database.setup_database()
+    
+    # 2. Cleanup Old Jobs (Delete Expired "Not searched" jobs)
+    database.cleanup_expired_jobs()
+    
+    # 3. Sync Excel
     database.sync_excel_to_db()
     
-    # 2. Get currently processed IDs (The "Brain")
+    # 4. Get currently processed IDs (The "Brain")
     processed_ids = database.get_existing_ids()
-    print(f"💾 Database currently holds {len(processed_ids)} jobs.")
+    print(f"💾 Database currently holds {len(processed_ids)} active jobs.")
 
     # We will accumulate all new jobs here to write to Excel/TXT once at the end
     all_newly_scraped_jobs = []
 
-    # 3. Loop through queries and update DB continuously
+    # 5. Loop through queries and update DB continuously
     for query in config.SEARCH_QUERIES:
         links = scraper.get_job_links(query)
         
@@ -47,9 +52,8 @@ def main():
                 database.add_job_to_db(details)
                 processed_ids.add(details['ID']) 
 
-    # 4. Save to files (only if we actually found something)
-    # We call save_to_excel regardless of whether we found new jobs, 
-    # just in case the file was deleted and needs rebuilding from DB.
+    # 6. Save to files (only if we actually found something)
+    # We call save_to_excel regardless, to rebuild if file is missing
     file_manager.save_to_excel(all_newly_scraped_jobs)
     
     if all_newly_scraped_jobs:

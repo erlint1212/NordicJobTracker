@@ -4,78 +4,187 @@ import os
 from datetime import datetime
 import config
 
+def get_db_connection():
+    return sqlite3.connect(config.DB_FILENAME)
+
 def setup_database():
-    """Creates the SQLite database with full history and description storage."""
-    conn = sqlite3.connect(config.DB_FILENAME)
+    """Checks schema and runs migration if necessary."""
+    conn = get_db_connection()
     cursor = conn.cursor()
     
+    # Check if table exists
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='scraped_jobs'")
+    if not cursor.fetchone():
+        _create_new_table(cursor)
+        print("✅ Database created with Typed Schema (Int, Date, Text).")
+    else:
+        # Check if we need to migrate. 
+        # We check if ID is of type "TEXT" (Old) vs "INTEGER" (New)
+        cursor.execute("PRAGMA table_info(scraped_jobs)")
+        columns_info = cursor.fetchall()
+        
+        # columns_info structure: (cid, name, type, notnull, dflt_value, pk)
+        id_type = next((col[2] for col in columns_info if col[1] == 'ID'), 'TEXT')
+        col_names = [col[1] for col in columns_info]
+
+        if id_type == 'TEXT' or 'short_desc' in col_names:
+            print("⚠️ Old schema detected (Text IDs or Short Desc). Migrating to Typed Schema...")
+            _migrate_schema(conn, cursor)
+        else:
+            print("✅ Database schema is up to date.")
+
+    conn.commit()
+    conn.close()
+
+def _create_new_table(cursor):
+    """Creates the clean table with specific types."""
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS scraped_jobs (
-            ID TEXT PRIMARY KEY,
+        CREATE TABLE scraped_jobs (
+            ID INTEGER PRIMARY KEY,
             title TEXT,
             employer TEXT,
             full_description TEXT,
-            date_added TEXT,
+            date_added DATE,
             deadline TEXT,
             location TEXT,
             contact TEXT,
             phone TEXT,
-            short_desc TEXT,
             link TEXT,
             status TEXT
         )
     ''')
-    conn.commit()
-    conn.close()
+
+def _migrate_schema(conn, cursor):
+    """
+    Refactors the database to use INTEGER IDs and removes short_desc.
+    """
+    try:
+        # 1. Rename old table
+        conn.execute("ALTER TABLE scraped_jobs RENAME TO scraped_jobs_old")
+        
+        # 2. Create new table with proper types
+        _create_new_table(cursor)
+        
+        # 3. Copy data over. 
+        # SQLite is flexible; it will try to cast the TEXT ID to INTEGER automatically.
+        cursor.execute('''
+            INSERT INTO scraped_jobs (ID, title, employer, full_description, date_added, deadline, location, contact, phone, link, status)
+            SELECT 
+                CAST(ID AS INTEGER), 
+                title, 
+                employer, 
+                full_description, 
+                date_added, 
+                deadline, 
+                location, 
+                contact, 
+                phone, 
+                link, 
+                status
+            FROM scraped_jobs_old
+        ''')
+        
+        # 4. Drop old table
+        conn.execute("DROP TABLE scraped_jobs_old")
+        print("✅ Migration successful: IDs converted to INTEGER, Schema cleaned.")
+    except Exception as e:
+        print(f"❌ Migration failed: {e}")
+        print("Restoring might require manual intervention.")
+
+def cleanup_expired_jobs():
+    """
+    Deletes jobs that are:
+    1. EXPIRED (Deadline < Today)
+    2. AND Status is 'Not searched'
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("SELECT ID, deadline, status FROM scraped_jobs")
+        jobs = cursor.fetchall()
+        
+        ids_to_delete = []
+        today = datetime.now()
+        
+        for job_id, deadline_str, status in jobs:
+            if status != "Not searched":
+                continue
+                
+            try:
+                # Handle "Se annonse", "Snarest" etc.
+                if not deadline_str or not any(char.isdigit() for char in deadline_str):
+                    continue 
+                
+                # Try parsing standard Norwegian format dd.mm.yyyy
+                deadline_date = datetime.strptime(deadline_str, "%d.%m.%Y")
+                
+                if deadline_date < today:
+                    ids_to_delete.append(job_id)
+            except ValueError:
+                continue
+        
+        if ids_to_delete:
+            print(f"🧹 Cleaning up {len(ids_to_delete)} expired jobs...")
+            cursor.executemany("DELETE FROM scraped_jobs WHERE ID=?", [(i,) for i in ids_to_delete])
+            conn.commit()
+            print("✅ Cleanup complete.")
+            
+    except Exception as e:
+        print(f"⚠️ Error during cleanup: {e}")
+    finally:
+        conn.close()
 
 def get_existing_ids():
-    """Fetches all Job IDs currently in the database."""
-    conn = sqlite3.connect(config.DB_FILENAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     try:
         cursor.execute('SELECT ID FROM scraped_jobs')
         rows = cursor.fetchall()
-        return {row[0] for row in rows}
-    except Exception:
-        return set()
+        # Return as strings for comparison with scraper, even though DB is int
+        return {str(row[0]) for row in rows}
     finally:
         conn.close()
 
 def add_job_to_db(details):
-    """Adds a newly scraped job dictionary to the database."""
-    conn = sqlite3.connect(config.DB_FILENAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
+    
+    # Ensure date_added is stored as ISO YYYY-MM-DD for the DATE column
+    # The scraper gives us strings, so we re-generate or parse.
+    iso_date = datetime.now().strftime("%Y-%m-%d")
+
     try:
         cursor.execute('''
             INSERT OR IGNORE INTO scraped_jobs (
                 ID, title, employer, full_description, date_added,
-                deadline, location, contact, phone, short_desc, link, status
+                deadline, location, contact, phone, link, status
             ) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            details['ID'], 
+            int(details['ID']),  # Force Integer
             details['Stillingstittel'], 
             details['Arbeidsgiver'], 
             details['Full beskrivelse'], 
-            datetime.now().strftime("%Y-%m-%d"),
+            iso_date,
             details['Søknadsfrist'],
             details['Arbeidssted'],
             details['Kontaktperson'],
             details['Mobil'],
-            details['Kort beskrivelse'],
             details['Lenke'],
             details['Status']
         ))
         conn.commit()
     except Exception as e:
-        print(f"⚠️ DB Error: {e}")
+        print(f"⚠️ DB Insert Error: {e}")
     finally:
         conn.close()
 
 def get_all_jobs_dataframe():
-    """Reads all jobs from the database for Excel reconstruction."""
-    conn = sqlite3.connect(config.DB_FILENAME)
+    conn = get_db_connection()
     try:
+        # We assume date_added is YYYY-MM-DD in DB, but we might want dd.mm.yyyy for Excel?
+        # For now, we pull it raw.
         query = '''
             SELECT 
                 title as Stillingstittel,
@@ -85,7 +194,7 @@ def get_all_jobs_dataframe():
                 contact as Kontaktperson,
                 phone as Mobil,
                 location as Arbeidssted,
-                short_desc as "Kort beskrivelse",
+                full_description as "Full beskrivelse",
                 link as Lenke,
                 status as Status,
                 ID
@@ -100,53 +209,61 @@ def get_all_jobs_dataframe():
         conn.close()
 
 def sync_excel_to_db():
-    """Syncs existing Excel rows to Database to prevent re-scraping old jobs."""
     if not os.path.exists(config.EXCEL_FILENAME):
         return
 
     print("🔄 Syncing existing Excel rows to Database...")
     try:
         df = pd.read_excel(config.EXCEL_FILENAME)
-        # Ensure ID column exists
-        if 'ID' not in df.columns:
-            return
+        if 'ID' not in df.columns: return
 
-        conn = sqlite3.connect(config.DB_FILENAME)
+        conn = get_db_connection()
         cursor = conn.cursor()
-        count = 0
         
         for _, row in df.iterrows():
-            job_id = str(row.get('ID', ''))
-            
-            # Insert logic matching the schema, filling missing data with defaults
-            cursor.execute('''
-                INSERT OR IGNORE INTO scraped_jobs (
-                    ID, title, employer, full_description, date_added,
-                    deadline, location, contact, phone, short_desc, link, status
-                ) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                job_id, 
-                row.get('Stillingstittel', 'Imported'),
-                row.get('Arbeidsgiver', 'Unknown'),
-                "", # Description usually blank in excel import
-                row.get('Fra dato', datetime.now().strftime("%Y-%m-%d")),
-                row.get('Søknadsfrist', ''),
-                row.get('Arbeidssted', ''),
-                row.get('Kontaktperson', ''),
-                row.get('Mobil', ''),
-                row.get('Kort beskrivelse', ''),
-                row.get('Lenke', ''),
-                row.get('Status', 'Not searched')
-            ))
-            
-            if cursor.rowcount > 0:
-                count += 1
-        
+            try:
+                job_id_str = str(row.get('ID', '')).replace('.0', '') # Clean Excel float artifacts
+                if not job_id_str or job_id_str == 'nan': continue
+                
+                job_id = int(job_id_str)
+                
+                # Fix Date Format for DB (Excel might give Timestamp or dd.mm.yyyy)
+                raw_date = row.get('Fra dato')
+                db_date = datetime.now().strftime("%Y-%m-%d") # Default
+                
+                if isinstance(raw_date, datetime):
+                    db_date = raw_date.strftime("%Y-%m-%d")
+                elif isinstance(raw_date, str) and "." in raw_date:
+                    # Convert dd.mm.yyyy to YYYY-MM-DD
+                    try:
+                        dt = datetime.strptime(raw_date, "%d.%m.%Y")
+                        db_date = dt.strftime("%Y-%m-%d")
+                    except: pass
+
+                cursor.execute('''
+                    INSERT OR IGNORE INTO scraped_jobs (
+                        ID, title, employer, full_description, date_added,
+                        deadline, location, contact, phone, link, status
+                    ) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    job_id, 
+                    row.get('Stillingstittel', 'Imported'),
+                    row.get('Arbeidsgiver', 'Unknown'),
+                    row.get('Full beskrivelse', ''),
+                    db_date,
+                    row.get('Søknadsfrist', ''),
+                    row.get('Arbeidssted', ''),
+                    row.get('Kontaktperson', ''),
+                    row.get('Mobil', ''),
+                    row.get('Lenke', ''),
+                    row.get('Status', 'Not searched')
+                ))
+            except ValueError:
+                continue # Skip rows with bad IDs
+
         conn.commit()
         conn.close()
-        if count > 0:
-            print(f"   - Imported {count} existing jobs from Excel to DB.")
             
     except Exception as e:
         print(f"   - Warning: Could not sync Excel to DB: {e}")

@@ -1,2 +1,16 @@
+# Python garbage
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Data artifacts (We want the repo clean, users generate their own data)
 data/
 output/
+*.db
+*.xlsx
+*.txt
+
+# IDE settings
+.vscode/
+.idea/

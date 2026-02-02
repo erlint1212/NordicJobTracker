@@ -40,7 +40,7 @@ COLUMNS = [
     'Kontaktperson', 
     'Mobil',
     'Arbeidssted', 
-    'Kort beskrivelse', 
+    'Full beskrivelse',
     'Lenke', 
     'Status',
     'ID'
@@ -52,7 +52,9 @@ STATUS_OPTIONS = [
     "1. Interview", 
     "2. Interview", 
     "Offer", 
-    "Accepted"
+    "Accepted",
+    "Rejected",
+    "Not Interested"
 ]
 
 # --- Scraper Settings ---
