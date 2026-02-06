@@ -209,61 +209,61 @@ def get_all_jobs_dataframe():
         conn.close()
 
 def sync_excel_to_db():
+    """Syncs existing Excel rows to Database to prevent re-scraping old jobs."""
     if not os.path.exists(config.EXCEL_FILENAME):
         return
 
     print("🔄 Syncing existing Excel rows to Database...")
     try:
-        df = pd.read_excel(config.EXCEL_FILENAME)
-        if 'ID' not in df.columns: return
+        # FIX: Read strictly as data, no formatting parsing if possible
+        # We catch the specific Value error just in case
+        try:
+            df = pd.read_excel(config.EXCEL_FILENAME, engine='openpyxl')
+        except ValueError:
+            # If openpyxl fails on formatting, we try a fallback or just pass
+            # There is no easy way to force openpyxl to ignore broken validation on read
+            # except by fixing the file or catching the error.
+            print("   - Warning: Could not parse Excel formatting. Skipping sync (Database should be source of truth).")
+            return
 
-        conn = get_db_connection()
+        if 'ID' not in df.columns:
+            return
+
+        conn = sqlite3.connect(config.DB_FILENAME)
         cursor = conn.cursor()
+        count = 0
         
         for _, row in df.iterrows():
-            try:
-                job_id_str = str(row.get('ID', '')).replace('.0', '') # Clean Excel float artifacts
-                if not job_id_str or job_id_str == 'nan': continue
-                
-                job_id = int(job_id_str)
-                
-                # Fix Date Format for DB (Excel might give Timestamp or dd.mm.yyyy)
-                raw_date = row.get('Fra dato')
-                db_date = datetime.now().strftime("%Y-%m-%d") # Default
-                
-                if isinstance(raw_date, datetime):
-                    db_date = raw_date.strftime("%Y-%m-%d")
-                elif isinstance(raw_date, str) and "." in raw_date:
-                    # Convert dd.mm.yyyy to YYYY-MM-DD
-                    try:
-                        dt = datetime.strptime(raw_date, "%d.%m.%Y")
-                        db_date = dt.strftime("%Y-%m-%d")
-                    except: pass
-
-                cursor.execute('''
-                    INSERT OR IGNORE INTO scraped_jobs (
-                        ID, title, employer, full_description, date_added,
-                        deadline, location, contact, phone, link, status
-                    ) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    job_id, 
-                    row.get('Stillingstittel', 'Imported'),
-                    row.get('Arbeidsgiver', 'Unknown'),
-                    row.get('Full beskrivelse', ''),
-                    db_date,
-                    row.get('Søknadsfrist', ''),
-                    row.get('Arbeidssted', ''),
-                    row.get('Kontaktperson', ''),
-                    row.get('Mobil', ''),
-                    row.get('Lenke', ''),
-                    row.get('Status', 'Not searched')
-                ))
-            except ValueError:
-                continue # Skip rows with bad IDs
-
+            job_id = str(row.get('ID', ''))
+            
+            cursor.execute('''
+                INSERT OR IGNORE INTO scraped_jobs (
+                    ID, title, employer, full_description, date_added,
+                    deadline, location, contact, phone, short_desc, link, status
+                ) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                job_id, 
+                row.get('Stillingstittel', 'Imported'),
+                row.get('Arbeidsgiver', 'Unknown'),
+                "", 
+                row.get('Fra dato', datetime.now().strftime("%Y-%m-%d")),
+                row.get('Søknadsfrist', ''),
+                row.get('Arbeidssted', ''),
+                row.get('Kontaktperson', ''),
+                row.get('Mobil', ''),
+                row.get('Kort beskrivelse', ''),
+                row.get('Lenke', ''),
+                row.get('Status', 'Not searched')
+            ))
+            
+            if cursor.rowcount > 0:
+                count += 1
+        
         conn.commit()
         conn.close()
+        if count > 0:
+            print(f"   - Imported {count} existing jobs from Excel to DB.")
             
     except Exception as e:
         print(f"   - Warning: Could not sync Excel to DB: {e}")

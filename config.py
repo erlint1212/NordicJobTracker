@@ -6,6 +6,7 @@ SEARCH_QUERIES = [
     "Data Science",
     "Data Engineer",
     "Backend Engineer",
+    "backend",
     "software engineer",
     
     # The Norwegian Titles (High Priority)

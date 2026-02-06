@@ -4,6 +4,8 @@ __pycache__/
 venv/
 .env
 
+profile.py
+
 # Data artifacts (We want the repo clean, users generate their own data)
 data/
 output/

@@ -9,6 +9,7 @@ let
     xlsxwriter        # For creating Excel dropdowns and colors
     openpyxl          # For reading/writing Excel files
     pip
+    google-generativeai
   ]);
 in
 
