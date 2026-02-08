@@ -10,6 +10,7 @@ let
     openpyxl          # For reading/writing Excel files
     pip
     google-generativeai
+    tabulate
   ]);
 in
 

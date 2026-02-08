@@ -1,31 +1,78 @@
-import config
+# dumb_filter.py
 
 def is_relevant_basic(title, description):
+    """
+    Returns (True, "Reason") if the job passes the basic keyword checks.
+    Returns (False, "Reason") if it fails.
+    """
     title_lower = title.lower()
     desc_lower = description.lower()
 
-    # 1. Title Dealbreakers (Instant Reject)
-    # Adjust this list based on your level.
-    # If you are a Junior/Graduate, reject Senior/Lead roles.
-    # If you want "Data Engineer", you might reject "Frontend".
-    bad_titles = [
-        "senior", "lead", "principal", "manager", "leder", "sjef", 
-        "head of", "architect",
-        ".net", "c#"
+    # --- 1. NEGATIVE FILTERS (Instant Rejects) ---
+    # We check if any of these substrings exist in the Job Title.
+
+    # A. Management & Executive (The "Boss" Filter)
+    bad_management = [
+        "manager", "management", "director", "direktør", 
+        "head of", "chief", "vp", "president", "c-level",
+        "partner", "founder", "owner", "chair", "board",
+        "leder", "sjef", "bestyrer", "ansvarlig" # "Ansvarlig" often implies "Manager" (e.g. Salgsansvarlig)
     ]
-    
-    if any(bad in title_lower for bad in bad_titles):
-        return False, f"Title contained: {', '.join([b for b in bad_titles if b in title_lower])}"
 
-    # 2. Tech Stack Requirements (Must have at least ONE)
-    # If a Data Engineering job doesn't mention Data, SQL or Python, it's probably wrong.
-    required_keywords = ["python", "go", "sql", "etl", "elt", "data", "machine learning", "ai", "cloud"]
+    # B. Seniority (The "Too Experienced" Filter)
+    bad_seniority = [
+        "senior", "principal", "lead", "staff engineer", 
+        "distinguished", "architect", "arkitekt", 
+        "expert", "erfaren", "spesialist" 
+    ]
+
+    # C. Non-Technical / Wrong Domain (The "Wrong Department" Filter)
+    bad_domain = [
+        "sales", "salg", "account", "konto", "business development", "forretningsutvikling",
+        "hr", "human resources", "personal", "talent", "recruiter", "rekruttering",
+        "marketing", "marked", "content", "innhold", "design", "ux", "ui", "graphic",
+        "finance", "økonomi", "regnskap", "controller", "auditor", "revisor",
+        "legal", "advokat", "jurist",
+        "support", "service", "kundeservice", "customer",
+        "professor", "phd", "research fellow", "stipendiat", "faculty", "lecturer"
+    ]
+
+    # D. Tech Stack Mismatch (The "Wrong Language" Filter)
+    # Only applies to TITLE. (e.g. A Python job might mention Java in description as "Nice to have", which is fine)
+    bad_stack = [
+        ".net", "c#", "java ", "java-", # "java" with space/hyphen avoids matching "javascript" (though you might want to ban that too)
+        "php", "ruby", "wordpress", "drupal",
+        "frontend", "front-end", "fullstack", "full-stack", # Remove if you want Fullstack
+        "hardware", "embedded", "firmware", "signal", "fpga", "iot",
+        "network", "nettverk", "cisco", "sysadmin", "system administrator",
+        "erp", "sap", "crm", "salesforce", "sharepoint"
+    ]
+
+    # Combine lists
+    all_bad_titles = bad_management + bad_seniority + bad_domain + bad_stack
+
+    for bad in all_bad_titles:
+        if bad in title_lower:
+            return False, f"Title contained blacklist term: '{bad}'"
+
+
+    # --- 2. POSITIVE FILTERS (Must Have) ---
+    # The description must contain at least ONE of these to be relevant.
     
+    required_keywords = [
+        # Languages
+        "python", "sql", "go", "rust",
+        # Data & Tools
+        "data", "etl", "elt", "pipeline", "spark", "pandas", "numpy", 
+        "airflow", "dbt", "snowflake", "kafka", "hadoop",
+        # Infrastructure
+        "aws", "azure", "gcp", "cloud", "docker", "kubernetes", "linux",
+        # Concepts
+        "machine learning", "ai", "artificial intelligence", "scikit", 
+        "backend", "back-end", "api", "rest", "devops"
+    ]
+
     if not any(req in desc_lower for req in required_keywords):
-        return False, "Missing required tech keywords"
-
-    # 3. Language Requirement (Optional)
-    # If you strictly need English or strictly need Norwegian, you could check here.
-    # For now, we skip this as it's harder to do accurately without LLM.
+        return False, "Description missing required tech keywords"
 
     return True, "Passed basic filter"

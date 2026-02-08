@@ -1,95 +1,112 @@
 import pandas as pd
+import sqlite3
 import os
 import config
-import database
 
-def save_to_txt(jobs):
-    """Saves ONLY 'Not searched' jobs to text file."""
-    
-    relevant_jobs = [j for j in jobs if j.get('Status') == "Not searched"]
-    
-    if not relevant_jobs:
-        return
-
-    with open(config.TXT_FILENAME, 'w', encoding='utf-8') as f:
-        f.write("I am looking for a job. Please analyze these NEW job postings and prioritize them.\n")
-        f.write("==========================================================================\n\n")
-        
-        for job in relevant_jobs:
-            f.write(f"JOB TITLE: {job['Stillingstittel']}\n")
-            f.write(f"COMPANY: {job['Arbeidsgiver']}\n")
-            f.write(f"DEADLINE: {job['Søknadsfrist']}\n")
-            f.write(f"LOCATION: {job['Arbeidssted']}\n")
-            f.write(f"LINK: {job['Lenke']}\n")
-            f.write(f"DESCRIPTION:\n{job['Full beskrivelse']}\n")
-            f.write("\n--------------------------------------------------------------------------\n\n")
-    
-    print(f"✅ Text file created at: {config.TXT_FILENAME} ({len(relevant_jobs)} jobs)")
-
-def save_to_excel(new_jobs):
+def save_to_excel(ignored_argument=None):
     """
-    Regenerates the Excel tracker from the Database. 
-    This avoids 'openpyxl' validation errors when reading existing formatted files.
+    Exports the database to Excel with specific formatting:
+    1. Excludes 'Discarded (Basic)' jobs.
+    2. Collapses (Groups) the long 'Full Description' column so it's readable.
     """
     
-    # 1. Fetch EVERYTHING from the Database (Old + New)
-    # The 'new_jobs' are already in the DB by the time this function is called in main.py
-    df = database.get_all_jobs_dataframe()
+    # Ensure data directory exists
+    os.makedirs("data", exist_ok=True)
+    file_path = "data/job_application_tracker.xlsx"
+
+    conn = sqlite3.connect(config.DB_FILENAME)
+
+    # 1. FETCH DATA (Filtering out Dumb Filter Rejections)
+    query = """
+        SELECT 
+            ID, 
+            title AS Stillingstittel, 
+            employer AS Arbeidsgiver, 
+            status AS Status, 
+            deadline AS Søknadsfrist, 
+            location AS Arbeidssted, 
+            link AS Lenke,
+            full_description AS 'Full beskrivelse'
+        FROM scraped_jobs 
+        WHERE status != 'Discarded (Basic)'
+        ORDER BY 
+            CASE WHEN status = 'Not searched' THEN 1  -- Approved jobs first
+                 WHEN status = 'Pending AI' THEN 2    -- Pending second
+                 ELSE 3 END,                          -- Rejections last
+            title ASC
+    """
     
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+
     if df.empty:
-        print("⚠️ Database is empty. Nothing to write to Excel.")
+        print("⚠️ No relevant jobs found to save.")
         return
 
-    # 2. Write to Excel using XlsxWriter (Overwrites existing file)
+    # 2. WRITE TO EXCEL WITH FORMATTING
+    # We use 'xlsxwriter' engine to enable grouping/collapsing
     try:
-        writer = pd.ExcelWriter(config.EXCEL_FILENAME, engine='xlsxwriter')
-        df.to_excel(writer, index=False, sheet_name='Tracker')
-        
+        writer = pd.ExcelWriter(file_path, engine='xlsxwriter')
+        df.to_excel(writer, index=False, sheet_name='Job Applications')
+
         workbook = writer.book
-        worksheet = writer.sheets['Tracker']
+        worksheet = writer.sheets['Job Applications']
 
-        # --- Colors ---
-        format_red = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
-        format_blue = workbook.add_format({'bg_color': '#BDD7EE', 'font_color': '#000000'})
-        format_yellow = workbook.add_format({'bg_color': '#FFEB9C', 'font_color': '#9C5700'})
-        format_green = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100'})
-
-        # Column Widths
-        worksheet.set_column('A:A', 30) # Tittel
-        worksheet.set_column('B:B', 12) # Fra dato
-        worksheet.set_column('C:C', 15) # Frist
-        worksheet.set_column('D:D', 25) # Arbeidsgiver
-        worksheet.set_column('E:E', 20) # Kontaktperson
-        worksheet.set_column('F:F', 15) # Mobil
-        worksheet.set_column('G:G', 15) # Sted
-        worksheet.set_column('H:H', 50) # Beskrivelse (Short)
-        worksheet.set_column('I:I', 40) # Lenke
-        worksheet.set_column('J:J', 20) # Status
-        worksheet.set_column('K:K', 0)  # Hide ID column
-
-        # Dropdown on Status (Column J)
-        status_col = 'J'
-        data_len = len(df) + 100
+        # --- FORMATTING ---
         
-        worksheet.data_validation(f'{status_col}2:{status_col}{data_len}', {
-            'validate': 'list',
-            'source': config.STATUS_OPTIONS
-        })
-
-        # Conditional Formatting
-        # Note: We must use specific criteria type 'cell' with 'criteria' and 'value'
-        # The 'value' needs double quotes around the string for text comparison in Excel logic
-        range_str = f'{status_col}2:{status_col}{data_len}'
+        # Define formats
+        header_format = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3', 'border': 1})
+        link_format = workbook.add_format({'font_color': 'blue', 'underline': True})
         
-        worksheet.conditional_format(range_str, {'type': 'cell', 'criteria': 'equal_to', 'value': '"Not searched"', 'format': format_red})
-        worksheet.conditional_format(range_str, {'type': 'cell', 'criteria': 'equal_to', 'value': '"Sent Application"', 'format': format_blue})
-        worksheet.conditional_format(range_str, {'type': 'cell', 'criteria': 'equal_to', 'value': '"1. Interview"', 'format': format_yellow})
-        worksheet.conditional_format(range_str, {'type': 'cell', 'criteria': 'equal_to', 'value': '"2. Interview"', 'format': format_yellow})
-        worksheet.conditional_format(range_str, {'type': 'cell', 'criteria': 'equal_to', 'value': '"Offer"', 'format': format_green})
-        worksheet.conditional_format(range_str, {'type': 'cell', 'criteria': 'equal_to', 'value': '"Accepted"', 'format': format_green})
+        # Apply Header Format
+        for col_num, value in enumerate(df.columns.values):
+            worksheet.write(0, col_num, value, header_format)
+
+        # Set Column Widths (A=0, B=1, etc.)
+        worksheet.set_column('A:A', 10)  # ID
+        worksheet.set_column('B:B', 40)  # Title (Wider)
+        worksheet.set_column('C:C', 25)  # Employer
+        worksheet.set_column('D:D', 20)  # Status
+        worksheet.set_column('E:E', 15)  # Deadline
+        worksheet.set_column('F:F', 20)  # Location
+        worksheet.set_column('G:G', 50)  # Link (Wide)
+
+        # --- COLLAPSE THE DESCRIPTION COLUMN (H) ---
+        # 'level': 1 adds it to a group. 'hidden': True hides it by default.
+        # This creates a [+] button above/left of the column to expand it.
+        worksheet.set_column('H:H', 20, None, {'level': 1, 'hidden': True})
 
         writer.close()
-        print(f"✅ Regenerated {config.EXCEL_FILENAME} from Database ({len(df)} jobs).")
+        print(f"✅ Saved clean Excel to {file_path} (Descriptions collapsed).")
         
     except Exception as e:
-        print(f"❌ Failed to write Excel file: {e}")
+        print(f"❌ Error saving Excel: {e}")
+
+def save_to_txt(job_list, filename="output/jobs_for_gemini.txt"):
+    """
+    Saves a list of job dictionaries to a text file.
+    """
+    if not job_list:
+        return
+
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(f"Generated Report: {filename}\n")
+        f.write(f"Total Jobs: {len(job_list)}\n")
+        f.write("==========================================================================\n\n")
+        
+        for i, job in enumerate(job_list):
+            f.write(f"JOB TITLE: {job.get('Stillingstittel', 'N/A')}\n")
+            f.write(f"COMPANY: {job.get('Arbeidsgiver', 'N/A')}\n")
+            f.write(f"STATUS: {job.get('Status', 'Unknown')}\n")
+            f.write(f"DEADLINE: {job.get('Søknadsfrist', 'N/A')}\n")
+            f.write(f"LOCATION: {job.get('Arbeidssted', 'N/A')}\n")
+            f.write(f"LINK: {job.get('Lenke', '#')}\n")
+            f.write("DESCRIPTION:\n")
+            # Limit description length in TXT for readability
+            desc = job.get('Full beskrivelse', '') or ""
+            f.write(f"{desc[:3000]}\n") 
+            f.write("\n--------------------------------------------------------------------------\n\n")
+    
+    print(f"✅ Saved text report to {filename}")

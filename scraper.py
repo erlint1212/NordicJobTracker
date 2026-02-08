@@ -35,7 +35,7 @@ def get_job_links(query):
 def scrape_ad_details(url):
     print(f"   🕷️ Crawling: {url}")
     try:
-        time.sleep(random.uniform(0.5, 1.5))
+        time.sleep(random.uniform(0.01, 0.1))
         response = requests.get(url, headers=config.HEADERS)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -51,40 +51,32 @@ def scrape_ad_details(url):
         full_description = ""
 
         # 1. Company Name
-        # Usually found in the top section or metadata
         top_section = soup.find('section', class_='mt-16')
         if top_section:
             p_tag = top_section.find('p', class_='mb-24')
             if p_tag: employer = p_tag.get_text(strip=True)
 
-        # 2. Key Info Extraction (Title, Location, Deadline, Contact)
-        # Finn stores specific data in <ul> lists with class 'space-y-6' or inside grids
-        
-        # Strategy: Look through ALL list items on the page to find keys
+        # 2. Key Info Extraction
         all_list_items = soup.find_all('li')
-        
         found_specific_title = False
         
         for li in all_list_items:
-            text = li.get_text(" ", strip=True) # Use space separator to avoid "Oslo0180"
+            text = li.get_text(" ", strip=True) 
             
-            # Job Title (Stillingstittel)
+            # Job Title (Legacy method, kept as fallback/check)
             if "Stillingstittel" in text and not found_specific_title:
-                # Remove the label to get just the value
                 clean_title = text.replace("Stillingstittel", "").replace(":", "").strip()
                 if clean_title:
-                    title = clean_title
-                    found_specific_title = True # Lock it so we don't overwrite
+                    # We prioritize the h1 extraction below, but this can be a backup
+                    pass 
             
-            # Deadline (Frist)
+            # Deadline
             if "Frist" in text:
-                # Often "Frist 10.02.2026"
                 clean_deadline = text.replace("Frist", "").replace(":", "").strip()
                 if clean_deadline: deadline = clean_deadline
 
-            # Location (Sted)
+            # Location
             if "Sted" in text:
-                # Often "Sted Oslo" or "Sted Bedriftsveien 9, 0950 Oslo"
                 clean_loc = text.replace("Sted", "").replace(":", "").strip()
                 if clean_loc: location = clean_loc
 
@@ -93,44 +85,36 @@ def scrape_ad_details(url):
                 clean_contact = text.replace("Kontaktperson", "").replace(":", "").strip()
                 if clean_contact: contact = clean_contact
 
-            # Phone (Mobil)
+            # Phone
             if "Mobil" in text or "Telefon" in text:
                 clean_phone = text.replace("Mobil", "").replace("Telefon", "").replace(":", "").strip()
                 if clean_phone: phone = clean_phone
 
-        # Fallback for Title: If we didn't find "Stillingstittel", use the H1 header
-        if not found_specific_title:
-            h1_tag = soup.find('h1', class_='t2')
-            if h1_tag: title = h1_tag.get_text(strip=True)
+        # --- IMPROVED TITLE EXTRACTION ---
+        # 1. Try specific data-testid (most reliable for actual Job Title)
+        h1_tag = soup.find('h1', attrs={'data-testid': 'object-title'})
+        
+        # 2. Fallback to standard class if testid is missing
+        if not h1_tag:
+            h1_tag = soup.find('h1', class_='u-t2')
+            
+        # 3. Last resort fallback
+        if not h1_tag:
+             h1_tag = soup.find('h1')
+
+        if h1_tag:
+            title = h1_tag.get_text(strip=True)
 
         # 3. Description
-        # The main body text is usually in a div with class 'import-decoration'
         desc_div = soup.find('div', class_='import-decoration')
         if desc_div:
-            # get_text with separator ensures paragraphs don't merge into one blob
             full_description = desc_div.get_text(separator="\n", strip=True)
-            # Remove excessive newlines
             full_description = re.sub(r'\n{3,}', '\n\n', full_description)
-            
-            # Create short description for Excel
             short_desc = full_description[:300].replace("\n", " ") + "..."
 
-    job_id = url.split('/')[-1]
+        job_id = url.split('/')[-1]
 
-    # --- NEW: AI Filter Step ---
-    ai_status = "Not searched" # Default
-    
-    # Only run AI if we have a description and the module loaded
-    if HAS_AI and full_description:
-        is_match, reason = ai_filter.evaluate_job(title, full_description)
-        
-        if not is_match:
-            print(f"      🤖 Gemini rejected: {reason}")
-            return None # Skip this job entirely!
-        else:
-            print(f"      🤖 Gemini approved: {reason}")
-
-        return {            
+        return {
             'Stillingstittel': title,
             'Fra dato': datetime.now().strftime("%d.%m.%Y"),
             'Søknadsfrist': deadline,
