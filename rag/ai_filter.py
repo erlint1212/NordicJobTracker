@@ -41,9 +41,7 @@ def evaluate_batch(job_list, force_local=False):
     
     # --- PROMPT STRATEGY ---
     if force_local:
-        # LOCAL / SINGLE SHOT STRATEGY (Hardened)
-        # We assume job_list has only 1 item if called from main.py with --local
-        job = job_list[0]
+        # LOCAL PROMPT
         prompt = f"""
         ROLE: STRICT TECHNICAL RECRUITER.
         TASK: EVALUATE THIS JOB FOR A JUNIOR DATA/PYTHON/BACKEND CANDIDATE.
@@ -56,37 +54,36 @@ def evaluate_batch(job_list, force_local=False):
         Employer: {job['employer']}
         Description: {job['description'][:2000]}
 
-        RULES (FAIL = MATCH FALSE):
-        1. REJECT SENIOR/LEAD/MANAGER/DIRECTOR ROLES.
-        2. REJECT SALES/HR/RECRUITMENT/HARDWARE/ELECTRICIAN ROLES.
-        3. REJECT IF REQUIRES >4 YEARS EXPERIENCE.
-        4. APPROVE JUNIOR/GRADUATE/ENTRY-LEVEL/INTERNSHIP.
-        5. APPROVE PYTHON/DATA/SQL/BACKEND ROLES.
+        INSTRUCTIONS:
+        1. Decide if it's a match based on the profile.
+        2. Assign a SUITABILITY SCORE (1-10). 
+           1 = Irrelevant/Senior/Wrong Stack. 
+           10 = Perfect Junior Python/Data Role.
 
         OUTPUT JSON ONLY:
         {{
-            "{job['id']}": {{ "match": true/false, "reason": "Short reason" }}
+            "{job['id']}": {{ "match": true/false, "reason": "Short reason", "score": 5 }}
         }}
         """
     else:
-        # GEMINI / BATCH STRATEGY
+        # GEMINI BATCH PROMPT
         jobs_json = json.dumps(job_list, indent=2)
         prompt = f"""
         Act as a strict technical screener. 
         Profile: {CANDIDATE_PROFILE}
         
         Evaluate these jobs.
-        RULES:
-        1. REJECT Senior/Lead/Manager/Director/Head of/VP/CTO/CEO.
-        2. REJECT Non-tech (Sales, HR, Recruiter, Electrician).
-        3. REJECT High experience (>4 years).
-        4. ACCEPT Internships/Summer Jobs/Graduate roles.
-        5. ACCEPT Python/Data/Backend/Cloud roles.
+        1. Determine if it matches (True/False).
+        2. Assign a Suitability Score (1-10), where 10 is perfect fit.
+        
+        Rules:
+        - Reject Senior/Manager roles.
+        - Prioritize Python, Data, Backend.
 
         Input:
         {jobs_json}
 
-        Return JSON object mapping Job ID -> {{ "match": boolean, "reason": "string" }}.
+        Return JSON object mapping Job ID -> {{ "match": boolean, "reason": "string", "score": integer }}.
         """
 
     # --- EXECUTION PATHS ---

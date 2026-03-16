@@ -1,6 +1,6 @@
 # clean_db.py
 import sqlite3
-import dumb_filter
+import rag.dumb_filter
 import config
 
 def clean_database():

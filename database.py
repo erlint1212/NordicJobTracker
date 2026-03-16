@@ -50,46 +50,69 @@ def _create_new_table(cursor):
             contact TEXT,
             phone TEXT,
             link TEXT,
-            status TEXT
+            status TEXT,
+            called TEXT DEFAULT 'Nei',
+            score INTEGER DEFAULT 0  -- <--- NEW COLUMN
         )
     ''')
 
+def setup_database():
+    """Checks schema and runs migration if necessary."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Check if table exists
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='scraped_jobs'")
+    if not cursor.fetchone():
+        _create_new_table(cursor)
+        print("✅ Database created with Typed Schema.")
+    else:
+        # Check for columns
+        cursor.execute("PRAGMA table_info(scraped_jobs)")
+        columns_info = cursor.fetchall()
+        col_names = [col[1] for col in columns_info]
+
+        # 1. Add 'called' if missing
+        if 'called' not in col_names:
+            print("⚠️ Adding 'called' column...")
+            try:
+                cursor.execute("ALTER TABLE scraped_jobs ADD COLUMN called TEXT DEFAULT 'Nei'")
+            except Exception as e: print(f"Error adding called: {e}")
+
+        # 2. Add 'score' if missing
+        if 'score' not in col_names:
+            print("⚠️ Adding 'score' column...")
+            try:
+                cursor.execute("ALTER TABLE scraped_jobs ADD COLUMN score INTEGER DEFAULT 0")
+            except Exception as e: print(f"Error adding score: {e}")
+
+        # Legacy ID check
+        id_type = next((col[2] for col in columns_info if col[1] == 'ID'), 'TEXT')
+        if id_type == 'TEXT':
+            print("⚠️ Migrating legacy ID types...")
+            _migrate_schema(conn, cursor)
+
+    conn.commit()
+    conn.close()
+
 def _migrate_schema(conn, cursor):
-    """
-    Refactors the database to use INTEGER IDs and removes short_desc.
-    """
+    """Refactors the database to use INTEGER IDs and proper columns."""
     try:
-        # 1. Rename old table
         conn.execute("ALTER TABLE scraped_jobs RENAME TO scraped_jobs_old")
-        
-        # 2. Create new table with proper types
         _create_new_table(cursor)
         
-        # 3. Copy data over. 
-        # SQLite is flexible; it will try to cast the TEXT ID to INTEGER automatically.
+        # Copy data over (excluding the new 'called' column which defaults to 'Nei')
         cursor.execute('''
             INSERT INTO scraped_jobs (ID, title, employer, full_description, date_added, deadline, location, contact, phone, link, status)
             SELECT 
-                CAST(ID AS INTEGER), 
-                title, 
-                employer, 
-                full_description, 
-                date_added, 
-                deadline, 
-                location, 
-                contact, 
-                phone, 
-                link, 
-                status
+                CAST(ID AS INTEGER), title, employer, full_description, date_added, deadline, location, contact, phone, link, status
             FROM scraped_jobs_old
         ''')
         
-        # 4. Drop old table
         conn.execute("DROP TABLE scraped_jobs_old")
-        print("✅ Migration successful: IDs converted to INTEGER, Schema cleaned.")
+        print("✅ Migration successful.")
     except Exception as e:
         print(f"❌ Migration failed: {e}")
-        print("Restoring might require manual intervention.")
 
 def cleanup_expired_jobs():
     """

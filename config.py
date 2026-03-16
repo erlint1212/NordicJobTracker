@@ -41,9 +41,9 @@ COLUMNS = [
     'Kontaktperson', 
     'Mobil',
     'Arbeidssted', 
-    'Full beskrivelse',
     'Lenke', 
     'Status',
+    'Har ringt',
     'ID'
 ]
 
