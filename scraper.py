@@ -8,29 +8,43 @@ import re
 
 def get_job_links(query):
     formatted_query = query.replace(" ", "+")
-    url = f"https://www.finn.no/job/search?q={formatted_query}"
-    
+    all_links = []
+    page = 1
+
     print(f"🔎 Searching for: {query}...")
-    try:
-        response = requests.get(url, headers=config.HEADERS)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
-        
-        links = []
-        articles = soup.find_all('article')
-        
-        for article in articles:
-            link_tag = article.find('a', class_='job-card-link')
-            if link_tag and link_tag.has_attr('href'):
-                href = link_tag['href']
-                if href.startswith("/"):
-                    href = f"https://www.finn.no{href}"
-                links.append(href)
-        
-        return list(set(links))
-    except Exception as e:
-        print(f"❌ Error searching {query}: {e}")
-        return []
+    while True:
+        url = f"https://www.finn.no/job/search?page={page}&q={formatted_query}"
+        try:
+            response = requests.get(url, headers=config.HEADERS)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            links = []
+            articles = soup.find_all('article')
+
+            for article in articles:
+                link_tag = article.find('a', class_='job-card-link')
+                if link_tag and link_tag.has_attr('href'):
+                    href = link_tag['href']
+                    if href.startswith("/"):
+                        href = f"https://www.finn.no{href}"
+                    links.append(href)
+
+            if not links:
+                break  # No more results, stop paginating
+
+            all_links.extend(links)
+            print(f"   📄 Page {page}: {len(links)} jobs found")
+            page += 1
+            time.sleep(random.uniform(0.1, 0.2))
+
+        except Exception as e:
+            print(f"❌ Error searching {query} (page {page}): {e}")
+            break
+
+    unique_links = list(set(all_links))
+    print(f"   🔗 Total unique links for '{query}': {len(unique_links)}")
+    return unique_links
 
 def scrape_ad_details(url):
     print(f"   🕷️ Crawling: {url}")

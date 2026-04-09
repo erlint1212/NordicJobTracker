@@ -8,6 +8,9 @@ SEARCH_QUERIES = [
     "Backend Engineer",
     "backend",
     "software engineer",
+    "DevOps"
+    "MLOps"
+    "ML Engineer"
     
     # The Norwegian Titles (High Priority)
     "Utvikler",             # Developer

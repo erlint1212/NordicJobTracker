@@ -132,6 +132,11 @@ def main():
         help="Skip AI check and approve all pending jobs.",
     )
 
+    parser.add_argument(
+        "--think", action="store_true",
+        help="Enable extended thinking for local model (slower but may improve accuracy).",
+    )
+
     # Reporting Flags
     parser.add_argument(
         "--regenerate",
@@ -245,20 +250,20 @@ def main():
                     for job in batch
                 ]
 
-                ai_results = ai_filter.evaluate_batch(ai_input, force_local=args.local)
+                ai_results = ai_filter.evaluate_batch(ai_input, force_local=args.local, think=args.think)
 
                 conn = sqlite3.connect(config.DB_FILENAME)
                 cursor = conn.cursor()
 
                 for job in batch:
                     job_id = str(job["ID"])
-                    # Default score is 0 if AI fails
-                    default_result = {
-                        "match": True,
-                        "reason": "⚠️ FAIL-OPEN: AI Error",
-                        "score": 0,
-                    }
-                    result = ai_results.get(job_id, default_result)
+                    result = ai_results.get(job_id)
+
+                    if result is None:
+                        print(
+                            f"      ⏭️  Skipped (AI failed): {job['Stillingstittel']}"
+                        )
+                        continue  # stays as 'Pending AI'
 
                     score = result.get("score", 0)  # <--- Extract Score
 
