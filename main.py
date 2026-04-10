@@ -7,6 +7,7 @@ import config
 import database
 import file_manager
 import scraper
+import split_jobs_ouput_file
 
 # Import filters
 try:
@@ -111,6 +112,11 @@ def generate_reports(report_dumb=False):
 
         file_manager.save_to_txt(candidate_list, filename=filename)
         print(f"✨ Done! {len(candidate_list)} jobs saved to: {filename}")
+
+        split_jobs_ouput_file.split_job_file(
+            file_path=filename, batch_size=10, output_subdir_name="job_batches"
+        )
+
     else:
         print("✨ Done! No jobs found for this report criteria.")
 
@@ -133,7 +139,8 @@ def main():
     )
 
     parser.add_argument(
-        "--think", action="store_true",
+        "--think",
+        action="store_true",
         help="Enable extended thinking for local model (slower but may improve accuracy).",
     )
 
@@ -250,7 +257,9 @@ def main():
                     for job in batch
                 ]
 
-                ai_results = ai_filter.evaluate_batch(ai_input, force_local=args.local, think=args.think)
+                ai_results = ai_filter.evaluate_batch(
+                    ai_input, force_local=args.local, think=args.think
+                )
 
                 conn = sqlite3.connect(config.DB_FILENAME)
                 cursor = conn.cursor()
