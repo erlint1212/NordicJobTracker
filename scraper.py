@@ -8,12 +8,13 @@ import re
 
 def get_job_links(query):
     formatted_query = query.replace(" ", "+")
+    extra_query = "work_experience=455&work_experience=456&extent=3947"
     all_links = []
     page = 1
 
     print(f"🔎 Searching for: {query}...")
     while True:
-        url = f"https://www.finn.no/job/search?page={page}&q={formatted_query}"
+        url = f"https://www.finn.no/job/search?page={page}&q={formatted_query}&{extra_query}"
         try:
             response = requests.get(url, headers=config.HEADERS)
             response.raise_for_status()
